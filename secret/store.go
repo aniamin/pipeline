@@ -90,6 +90,9 @@ func GenerateSecretID() string {
 // RepoSecretType marks secrets as of type "repo"
 const RepoSecretType = "repo"
 
+// SshSecretType marks secrets as of type "ssh"
+const SshSecretType = "ssh"
+
 // DefaultRules key matching for types
 var DefaultRules = map[string][]string{
 	btypes.Amazon: {
@@ -120,6 +123,13 @@ var DefaultRules = map[string][]string{
 	RepoSecretType: {
 		RepoName,
 		RepoSecret,
+	},
+	SshSecretType: {
+		User,
+		Identifier,
+		PublicKeyData,
+		PublicKeyFingerprint,
+		PrivateKeyData,
 	},
 }
 
@@ -160,6 +170,15 @@ const (
 const (
 	RepoName   = "RepoName"
 	RepoSecret = "RepoSecret"
+)
+
+// Ssh keys
+const (
+	User                 = "user"
+	Identifier           = "identifier"
+	PublicKeyData        = "public_key_data"
+	PublicKeyFingerprint = "public_key_fingerprint"
+	PrivateKeyData       = "private_key_data"
 )
 
 // Validate SecretRequest

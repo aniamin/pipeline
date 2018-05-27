@@ -40,6 +40,7 @@ type AmazonClusterModel struct {
 	MasterInstanceType string
 	MasterImage        string
 	NodePools          []*AmazonNodePoolsModel `gorm:"foreignkey:ClusterModelId"`
+	SshSecretID        string
 }
 
 //AmazonNodePoolsModel describes Amazon node groups model of a cluster
@@ -48,8 +49,10 @@ type AmazonNodePoolsModel struct {
 	ClusterModelId   uint   `gorm:"unique_index:idx_modelid_name"`
 	Name             string `gorm:"unique_index:idx_modelid_name"`
 	NodeSpotPrice    string
+	Autoscaling      bool
 	NodeMinCount     int
 	NodeMaxCount     int
+	Count            int
 	NodeImage        string
 	NodeInstanceType string
 	Delete           bool `gorm:"-"`
@@ -68,6 +71,9 @@ type AzureNodePoolModel struct {
 	ID               uint   `gorm:"primary_key"`
 	ClusterModelId   uint   `gorm:"unique_index:idx_modelid_name"`
 	Name             string `gorm:"unique_index:idx_modelid_name"`
+	Autoscaling      bool
+	NodeMinCount     int
+	NodeMaxCount     int
 	Count            int
 	NodeInstanceType string
 }
@@ -77,6 +83,9 @@ type GoogleNodePoolModel struct {
 	ID               uint   `gorm:"primary_key"`
 	ClusterModelId   uint   `gorm:"unique_index:idx_modelid_name"`
 	Name             string `gorm:"unique_index:idx_modelid_name"`
+	Autoscaling      bool   `gorm:"default:false"`
+	NodeMinCount     int
+	NodeMaxCount     int
 	NodeCount        int
 	NodeInstanceType string
 	ServiceAccount   string
