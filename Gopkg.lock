@@ -149,14 +149,14 @@
   revision = "354eea55437b616667eda42a04b76660f71eb906"
 
 [[projects]]
+  branch = "master"
   name = "github.com/banzaicloud/bank-vaults"
   packages = [
     "auth",
     "database",
     "vault"
   ]
-  revision = "950d407647b0c77fb6425a500a00e3e17d959406"
-  version = "0.1.4"
+  revision = "05cfd2879b6f983f00781f1525e6394e28bf73c4"
 
 [[projects]]
   branch = "master"
@@ -1739,6 +1739,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "0d2ddc0ca884b3eccd024536fdca51ed412ae836fdd0ae417265e7dae1156560"
+  inputs-digest = "6a6c83ed847c6407128ec9dda579a753574e173054e50ae1b3a2d8255be8d13a"
   solver-name = "gps-cdcl"
   solver-version = 1
