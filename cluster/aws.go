@@ -31,6 +31,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
 	"strings"
+	"time"
+)
+
+var (
+	vpcIdKey   = "vpc-id"
+	k8sCluster = "KubernetesCluster"
 )
 
 // Simple init for logging
@@ -759,6 +765,7 @@ func ReadCluster(modelCluster *model.ClusterModel) (*kcluster.Cluster, error) {
 func (c *AWSCluster) DeleteCluster() error {
 
 	log := logger.WithFields(logrus.Fields{"action": constants.TagDeleteCluster})
+
 	kubicornLogger.Level = getKubicornLogLevel()
 
 	log.Info("Start delete amazon cluster")
@@ -766,6 +773,12 @@ func (c *AWSCluster) DeleteCluster() error {
 	if err != nil {
 		return err
 	}
+
+	log.Info("Start deleting security group for Kubernetes ELB")
+	if err := c.revokeELBDependency(kubicornCluster.Network.Identifier); err != nil {
+		return err
+	}
+
 	statestore := getStateStoreForCluster(c.modelCluster)
 	log.Debug("Get reconciler")
 
@@ -1184,4 +1197,140 @@ func (c *AWSCluster) validateAMIs(masterAMI string, nodePools map[string]*amazon
 // GetSecretWithValidation returns secret from vault
 func (c *AWSCluster) GetSecretWithValidation() (*secret.SecretsItemResponse, error) {
 	return c.commonSecret.get(c)
+}
+
+func (c *AWSCluster) listSecurityGroups(svc *ec2.EC2, vpcId string) ([]*ec2.SecurityGroup, error) {
+
+	output, err := svc.DescribeSecurityGroups(&ec2.DescribeSecurityGroupsInput{
+		Filters: []*ec2.Filter{
+			{
+				Name:   &vpcIdKey,
+				Values: []*string{&vpcId},
+			},
+		},
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return output.SecurityGroups, nil
+}
+
+func (c *AWSCluster) deleteSecurityGroup(svc *ec2.EC2, group *ec2.SecurityGroup) error {
+
+	log.Infof("Delete security group [%s]", *group.GroupId)
+
+	alive := true
+	for alive {
+		if _, err := svc.DeleteSecurityGroup(&ec2.DeleteSecurityGroupInput{
+			GroupId: group.GroupId,
+		}); err != nil {
+			if strings.Contains(err.Error(), "DependencyViolation") {
+				log.Infof("retry delete: %s", err.Error())
+				time.Sleep(time.Duration(10) * time.Second)
+				continue
+			} else if strings.Contains(err.Error(), "InvalidGroup.NotFound") {
+				return nil
+			}
+			return err
+		}
+		alive = false
+	}
+
+	return nil
+}
+
+func (c *AWSCluster) revokeELBDependency(vpcId string) error {
+
+	log.Info("Revoke all ELB security group dependency")
+
+	log.Info("Create new EC2 client")
+	svc, err := c.newEC2Client(c.modelCluster.Location)
+	if err != nil {
+		return err
+	}
+
+	log.Info("List security groups")
+	groups, err := c.listSecurityGroups(svc, vpcId)
+	if err != nil {
+		return err
+	}
+
+	log.Info("Find ELB security group(s)")
+	sourceGroups := c.findELBSecurityGroups(groups)
+	if len(sourceGroups) == 0 {
+		return nil
+	}
+	for _, group := range sourceGroups {
+		log.Debugf("ELB security group id: %s", *group.GroupId)
+		log.Info("Revoke ELB security group dependency")
+		if err := c.revokeELBSecurityGroupDependency(svc, groups, group); err != nil {
+			return err
+		}
+
+		log.Info("Delete ELB security group")
+		if err := c.deleteSecurityGroup(svc, group); err != nil {
+			return err
+		}
+
+	}
+
+	return nil
+}
+
+func (c *AWSCluster) revokeELBSecurityGroupDependency(svc *ec2.EC2, groups []*ec2.SecurityGroup, sourceGroup *ec2.SecurityGroup) error {
+
+	for _, group := range groups {
+		if group != nil && len(group.IpPermissions) != 0 {
+			for _, p := range group.IpPermissions {
+				if p != nil && len(p.UserIdGroupPairs) != 0 {
+					for _, gp := range p.UserIdGroupPairs {
+						if gp != nil && *gp.GroupId == *sourceGroup.GroupId {
+							log.Infof("ELB security group dependency found [%s]", *gp.GroupId)
+							if err := c.revokeSecurityGroupIngress(svc, group, sourceGroup, p); err != nil {
+								return err
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *AWSCluster) revokeSecurityGroupIngress(svc *ec2.EC2, sg, sourceGroup *ec2.SecurityGroup, permission *ec2.IpPermission) error {
+
+	log.Infof("Revoke security group ingress [ %s // %s ]", *sg.GroupId, *sourceGroup.GroupId)
+
+	_, err := svc.RevokeSecurityGroupIngress(&ec2.RevokeSecurityGroupIngressInput{
+		GroupId:       sg.GroupId,
+		IpPermissions: []*ec2.IpPermission{permission},
+	})
+
+	log.Info("Revoke security group succeeded")
+
+	return err
+}
+
+func (c *AWSCluster) findELBSecurityGroups(groups []*ec2.SecurityGroup) []*ec2.SecurityGroup {
+
+	var elbs []*ec2.SecurityGroup
+
+	for _, g := range groups {
+		if g != nil && g.Tags != nil {
+			for _, t := range g.Tags {
+				if t != nil {
+					if t.Key != nil && t.Value != nil &&
+						*t.Key == k8sCluster && *t.Value == c.modelCluster.Name {
+						elbs = append(elbs, g)
+					}
+				}
+			}
+		}
+	}
+
+	return elbs
 }
